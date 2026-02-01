@@ -20,18 +20,24 @@ require_arg() {
 # --- commands ---
 
 cmd_list() {
-  local repo=""
+  local repo="" all=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --repo) repo="$2"; shift 2 ;;
+      --all)  all=true; shift ;;
       *) die "unknown flag: $1" ;;
     esac
   done
 
+  if [[ "$all" == true ]]; then
+    repo=""
+  elif [[ -z "$repo" ]]; then
+    repo="$(detect_repo)"
+  fi
+
   local path="$SSM_PREFIX/"
   [[ -n "$repo" ]] && path="$SSM_PREFIX/$repo/"
 
-  # If no --repo given but inside a git repo, offer context
   if [[ -z "$repo" ]]; then
     echo "=== all stacks ==="
   else
@@ -56,8 +62,14 @@ cmd_list() {
 }
 
 cmd_get() {
-  local repo="${1:-}" stack="${2:-}"
-  require_arg "$repo" "repo"
+  local repo="" stack=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo) repo="$2"; shift 2 ;;
+      *) if [[ -z "$stack" ]]; then stack="$1"; shift; else die "unexpected argument: $1"; fi ;;
+    esac
+  done
+  [[ -z "$repo" ]] && repo="$(detect_repo)"
   require_arg "$stack" "stack"
 
   aws ssm get-parameter \
@@ -68,8 +80,14 @@ cmd_get() {
 }
 
 cmd_push() {
-  local repo="${1:-}" stack="${2:-}" file="${3:-}"
-  require_arg "$repo" "repo"
+  local repo="" stack="" file=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo) repo="$2"; shift 2 ;;
+      *) if [[ -z "$stack" ]]; then stack="$1"; elif [[ -z "$file" ]]; then file="$1"; else die "unexpected argument: $1"; fi; shift ;;
+    esac
+  done
+  [[ -z "$repo" ]] && repo="$(detect_repo)"
   require_arg "$stack" "stack"
 
   local value
@@ -90,12 +108,18 @@ cmd_push() {
 }
 
 cmd_pull() {
-  local repo="${1:-}" stack="${2:-}" file="${3:-}"
-  require_arg "$repo" "repo"
+  local repo="" stack="" file=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo) repo="$2"; shift 2 ;;
+      *) if [[ -z "$stack" ]]; then stack="$1"; elif [[ -z "$file" ]]; then file="$1"; else die "unexpected argument: $1"; fi; shift ;;
+    esac
+  done
+  [[ -z "$repo" ]] && repo="$(detect_repo)"
   require_arg "$stack" "stack"
 
   local content
-  content="$(cmd_get "$repo" "$stack")"
+  content="$(cmd_get --repo "$repo" "$stack")"
 
   if [[ -n "$file" ]]; then
     echo "$content" > "$file"
@@ -106,8 +130,14 @@ cmd_pull() {
 }
 
 cmd_delete() {
-  local repo="${1:-}" stack="${2:-}"
-  require_arg "$repo" "repo"
+  local repo="" stack=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo) repo="$2"; shift 2 ;;
+      *) if [[ -z "$stack" ]]; then stack="$1"; shift; else die "unexpected argument: $1"; fi ;;
+    esac
+  done
+  [[ -z "$repo" ]] && repo="$(detect_repo)"
   require_arg "$stack" "stack"
 
   aws ssm delete-parameter \
@@ -117,8 +147,14 @@ cmd_delete() {
 }
 
 cmd_init_backend() {
-  local repo="${1:-}"
-  require_arg "$repo" "repo"
+  local repo=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo) repo="$2"; shift 2 ;;
+      *) die "unexpected argument: $1" ;;
+    esac
+  done
+  [[ -z "$repo" ]] && repo="$(detect_repo)"
 
   local bucket="pulumi-state-${repo}"
   local region
@@ -182,8 +218,14 @@ cmd_init_backend() {
 }
 
 cmd_env() {
-  local repo="${1:-}"
-  require_arg "$repo" "repo"
+  local repo=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo) repo="$2"; shift 2 ;;
+      *) die "unexpected argument: $1" ;;
+    esac
+  done
+  [[ -z "$repo" ]] && repo="$(detect_repo)"
 
   local bucket passphrase
   bucket="$(aws ssm get-parameter \
@@ -207,14 +249,16 @@ usage() {
   cat <<EOF
 pulumi-config — manage Pulumi stack configs in AWS SSM
 
+repo is auto-detected from the current git folder. use --repo to override.
+
 usage:
-  pulumi-config list [--repo <name>]         list stacks (all or by repo)
-  pulumi-config get <repo> <stack>           print stack config to stdout
-  pulumi-config push <repo> <stack> [file]   push config (file or stdin)
-  pulumi-config pull <repo> <stack> [file]   pull config (to file or stdout)
-  pulumi-config delete <repo> <stack>        delete stack config
-  pulumi-config init-backend <repo>          create S3 bucket + passphrase
-  pulumi-config env <repo>                   print export statements for shell
+  pulumi-config list [--all] [--repo <name>]   list stacks (current repo, --all for all)
+  pulumi-config get <stack> [--repo <name>]    print stack config to stdout
+  pulumi-config push <stack> [file] [--repo]   push config (file or stdin)
+  pulumi-config pull <stack> [file] [--repo]   pull config (to file or stdout)
+  pulumi-config delete <stack> [--repo <name>] delete stack config
+  pulumi-config init-backend [--repo <name>]   create S3 bucket + passphrase
+  pulumi-config env [--repo <name>]            print export statements for shell
 
 parameter layout in SSM:
   /pulumi/{repo}/{stack}/config     SecretString  stack config yaml

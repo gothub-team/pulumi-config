@@ -12,18 +12,20 @@ CLI tool to manage Pulumi stack configs (`Pulumi.<stack>.yaml`) in AWS SSM Param
 
 ## Setup for a new project
 
-1. `pulumi-config init-backend <repo>` — creates the S3 state bucket, stores bucket name and passphrase in SSM
-2. `eval $(pulumi-config env <repo>)` — exports `PULUMI_BACKEND_URL` and `PULUMI_CONFIG_PASSPHRASE`
-3. `pulumi-config push <repo> <stack> Pulumi.<stack>.yaml` — backs up stack config
-4. `pulumi-config pull <repo> <stack> Pulumi.<stack>.yaml` — restores it on a fresh machine
+1. `pulumi-config init-backend` — creates the S3 state bucket, stores bucket name and passphrase in SSM
+2. `eval $(pulumi-config env)` — exports `PULUMI_BACKEND_URL` and `PULUMI_CONFIG_PASSPHRASE`
+3. `pulumi-config push <stack> Pulumi.<stack>.yaml` — backs up stack config
+4. `pulumi-config pull <stack> Pulumi.<stack>.yaml` — restores it on a fresh machine
+
+Repo is auto-detected from the current git folder. Use `--repo <name>` to override on any command.
 
 ## Restoring a full project from scratch
 
 ```sh
 git clone <repo-url>
 cd <repo>
-pulumi-config pull <repo> prod infra/Pulumi.prod.yaml
-eval $(pulumi-config env <repo>)
+pulumi-config pull prod infra/Pulumi.prod.yaml
+eval $(pulumi-config env)
 cd infra && npm install && pulumi up
 ```
 
@@ -31,13 +33,13 @@ cd infra && npm install && pulumi up
 
 | Command | Description |
 |---|---|
-| `list [--repo name]` | List all stacks, or filter by repo |
-| `get <repo> <stack>` | Print config to stdout |
-| `push <repo> <stack> [file]` | Upload config (file or stdin) |
-| `pull <repo> <stack> [file]` | Download config (to file or stdout) |
-| `delete <repo> <stack>` | Remove config from SSM |
-| `init-backend <repo>` | Create S3 bucket + passphrase |
-| `env <repo>` | Print shell export statements |
+| `list [--all] [--repo name]` | List stacks for current repo (or all with `--all`) |
+| `get <stack>` | Print config to stdout |
+| `push <stack> [file]` | Upload config (file or stdin) |
+| `pull <stack> [file]` | Download config (to file or stdout) |
+| `delete <stack>` | Remove config from SSM |
+| `init-backend` | Create S3 bucket + passphrase |
+| `env` | Print shell export statements |
 
 ## Requirements
 

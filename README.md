@@ -26,31 +26,34 @@ alias puc='pulumi-config'
 ### New project setup
 
 ```sh
-pulumi-config init-backend <repo>                     # create S3 bucket + passphrase
-eval $(pulumi-config env <repo>)                      # export backend URL + passphrase
-pulumi-config push <repo> <stack> Pulumi.<stack>.yaml  # back up stack config
+cd <repo>
+pulumi-config init-backend              # create S3 bucket + passphrase
+eval $(pulumi-config env)               # export backend URL + passphrase
+pulumi-config push <stack> Pulumi.<stack>.yaml  # back up stack config
 ```
 
 ### Restore on a fresh machine
 
 ```sh
 git clone <repo-url> && cd <repo>
-pulumi-config pull <repo> prod infra/Pulumi.prod.yaml
-eval $(pulumi-config env <repo>)
+pulumi-config pull prod infra/Pulumi.prod.yaml
+eval $(pulumi-config env)
 cd infra && npm install && pulumi up
 ```
 
 ## Commands
 
+Repo is auto-detected from the current git folder. Use `--repo <name>` to override.
+
 | Command | Description |
 |---|---|
-| `list [--repo name]` | List all stacks, or filter by repo |
-| `get <repo> <stack>` | Print config to stdout |
-| `push <repo> <stack> [file]` | Upload config (file or stdin) |
-| `pull <repo> <stack> [file]` | Download config (to file or stdout) |
-| `delete <repo> <stack>` | Remove config from SSM |
-| `init-backend <repo>` | Create S3 bucket + passphrase |
-| `env <repo>` | Print shell export statements |
+| `list [--all] [--repo name]` | List stacks for current repo (or all with `--all`) |
+| `get <stack>` | Print config to stdout |
+| `push <stack> [file]` | Upload config (file or stdin) |
+| `pull <stack> [file]` | Download config (to file or stdout) |
+| `delete <stack>` | Remove config from SSM |
+| `init-backend` | Create S3 bucket + passphrase |
+| `env` | Print shell export statements |
 
 ## Requirements
 
