@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SSM_PREFIX="/pulumi"
+
+# --- helpers ---
+
+die() { echo "error: $*" >&2; exit 1; }
+
+detect_repo() {
+  local dir="${1:-$(pwd)}"
+  basename "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null \
+    || die "not inside a git repo and no --repo given"
+}
+
+require_arg() {
+  [[ -n "${1:-}" ]] || die "missing required argument: $2"
+}
+
+# --- commands ---
+
+cmd_list() {
+  local repo=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo) repo="$2"; shift 2 ;;
+      *) die "unknown flag: $1" ;;
+    esac
+  done
+
+  local path="$SSM_PREFIX/"
+  [[ -n "$repo" ]] && path="$SSM_PREFIX/$repo/"
+
+  # If no --repo given but inside a git repo, offer context
+  if [[ -z "$repo" ]]; then
+    echo "=== all stacks ==="
+  else
+    echo "=== stacks for $repo ==="
+  fi
+
+  aws ssm get-parameters-by-path \
+    --path "$path" \
+    --recursive \
+    --query "Parameters[].Name" \
+    --output text 2>/dev/null \
+  | tr '\t' '\n' \
+  | grep '/config$' \
+  | while IFS= read -r name; do
+      # strip prefix and /config suffix → repo/stack
+      local rel="${name#$SSM_PREFIX/}"
+      rel="${rel%/config}"
+      local r="${rel%%/*}"
+      local s="${rel#*/}"
+      printf "%-30s %s\n" "$r" "$s"
+    done
+}
+
+cmd_get() {
+  local repo="${1:-}" stack="${2:-}"
+  require_arg "$repo" "repo"
+  require_arg "$stack" "stack"
+
+  aws ssm get-parameter \
+    --name "$SSM_PREFIX/$repo/$stack/config" \
+    --with-decryption \
+    --query "Parameter.Value" \
+    --output text
+}
+
+cmd_push() {
+  local repo="${1:-}" stack="${2:-}" file="${3:-}"
+  require_arg "$repo" "repo"
+  require_arg "$stack" "stack"
+
+  local value
+  if [[ -n "$file" ]]; then
+    value="$(cat "$file")"
+  else
+    value="$(cat -)"
+  fi
+
+  aws ssm put-parameter \
+    --name "$SSM_PREFIX/$repo/$stack/config" \
+    --type SecretString \
+    --value "$value" \
+    --overwrite \
+    --query "Version" \
+    --output text \
+  | xargs -I{} echo "pushed $repo/$stack (version {})"
+}
+
+cmd_pull() {
+  local repo="${1:-}" stack="${2:-}" file="${3:-}"
+  require_arg "$repo" "repo"
+  require_arg "$stack" "stack"
+
+  local content
+  content="$(cmd_get "$repo" "$stack")"
+
+  if [[ -n "$file" ]]; then
+    echo "$content" > "$file"
+    echo "pulled $repo/$stack → $file"
+  else
+    echo "$content"
+  fi
+}
+
+cmd_delete() {
+  local repo="${1:-}" stack="${2:-}"
+  require_arg "$repo" "repo"
+  require_arg "$stack" "stack"
+
+  aws ssm delete-parameter \
+    --name "$SSM_PREFIX/$repo/$stack/config"
+
+  echo "deleted $repo/$stack"
+}
+
+cmd_init_backend() {
+  local repo="${1:-}"
+  require_arg "$repo" "repo"
+
+  local bucket="pulumi-state-${repo}"
+  local region
+  region="$(aws configure get region || echo "eu-central-1")"
+
+  echo "creating S3 bucket: $bucket (region: $region)"
+
+  if [[ "$region" == "us-east-1" ]]; then
+    aws s3api create-bucket --bucket "$bucket" 2>/dev/null || true
+  else
+    aws s3api create-bucket \
+      --bucket "$bucket" \
+      --create-bucket-configuration LocationConstraint="$region" 2>/dev/null || true
+  fi
+
+  aws s3api put-bucket-versioning \
+    --bucket "$bucket" \
+    --versioning-configuration Status=Enabled
+
+  aws s3api put-public-access-block \
+    --bucket "$bucket" \
+    --public-access-block-configuration \
+      BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+
+  # store bucket name in SSM
+  aws ssm put-parameter \
+    --name "$SSM_PREFIX/$repo/backend-bucket" \
+    --type String \
+    --value "$bucket" \
+    --overwrite >/dev/null
+
+  echo "stored bucket name in $SSM_PREFIX/$repo/backend-bucket"
+
+  # generate and store passphrase
+  local existing
+  existing="$(aws ssm get-parameter \
+    --name "$SSM_PREFIX/$repo/passphrase" \
+    --with-decryption \
+    --query "Parameter.Value" \
+    --output text 2>/dev/null || true)"
+
+  if [[ -n "$existing" ]]; then
+    echo "passphrase already exists at $SSM_PREFIX/$repo/passphrase — skipping"
+  else
+    local passphrase
+    passphrase="$(openssl rand -base64 32)"
+    aws ssm put-parameter \
+      --name "$SSM_PREFIX/$repo/passphrase" \
+      --type SecretString \
+      --value "$passphrase" >/dev/null
+    echo "generated and stored passphrase in $SSM_PREFIX/$repo/passphrase"
+  fi
+
+  echo ""
+  echo "backend config for Pulumi.yaml:"
+  echo "  backend:"
+  echo "    url: s3://$bucket"
+  echo ""
+  echo "export before running pulumi:"
+  echo "  export PULUMI_CONFIG_PASSPHRASE=\$(aws ssm get-parameter --name $SSM_PREFIX/$repo/passphrase --with-decryption --query Parameter.Value --output text)"
+}
+
+cmd_env() {
+  local repo="${1:-}"
+  require_arg "$repo" "repo"
+
+  local bucket passphrase
+  bucket="$(aws ssm get-parameter \
+    --name "$SSM_PREFIX/$repo/backend-bucket" \
+    --query "Parameter.Value" \
+    --output text 2>/dev/null)" || die "no backend-bucket found for $repo"
+
+  passphrase="$(aws ssm get-parameter \
+    --name "$SSM_PREFIX/$repo/passphrase" \
+    --with-decryption \
+    --query "Parameter.Value" \
+    --output text 2>/dev/null)" || die "no passphrase found for $repo"
+
+  echo "export PULUMI_BACKEND_URL=s3://$bucket"
+  echo "export PULUMI_CONFIG_PASSPHRASE=$passphrase"
+}
+
+# --- main ---
+
+usage() {
+  cat <<EOF
+pulumi-config — manage Pulumi stack configs in AWS SSM
+
+usage:
+  pulumi-config list [--repo <name>]         list stacks (all or by repo)
+  pulumi-config get <repo> <stack>           print stack config to stdout
+  pulumi-config push <repo> <stack> [file]   push config (file or stdin)
+  pulumi-config pull <repo> <stack> [file]   pull config (to file or stdout)
+  pulumi-config delete <repo> <stack>        delete stack config
+  pulumi-config init-backend <repo>          create S3 bucket + passphrase
+  pulumi-config env <repo>                   print export statements for shell
+
+parameter layout in SSM:
+  /pulumi/{repo}/{stack}/config     SecretString  stack config yaml
+  /pulumi/{repo}/backend-bucket     String        S3 bucket name
+  /pulumi/{repo}/passphrase         SecretString  encryption passphrase
+EOF
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  list)          cmd_list "$@" ;;
+  get)           cmd_get "$@" ;;
+  push)          cmd_push "$@" ;;
+  pull)          cmd_pull "$@" ;;
+  delete)        cmd_delete "$@" ;;
+  init-backend)  cmd_init_backend "$@" ;;
+  env)           cmd_env "$@" ;;
+  help|--help|-h) usage ;;
+  *) die "unknown command: $cmd" ;;
+esac
