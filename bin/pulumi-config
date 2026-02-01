@@ -99,7 +99,7 @@ cmd_push() {
 
   aws ssm put-parameter \
     --name "$SSM_PREFIX/$repo/$stack/config" \
-    --type SecretString \
+    --type SecureString \
     --value "$value" \
     --overwrite \
     --query "Version" \
@@ -203,7 +203,7 @@ cmd_init_backend() {
     passphrase="$(openssl rand -base64 32)"
     aws ssm put-parameter \
       --name "$SSM_PREFIX/$repo/passphrase" \
-      --type SecretString \
+      --type SecureString \
       --value "$passphrase" >/dev/null
     echo "generated and stored passphrase in $SSM_PREFIX/$repo/passphrase"
   fi
