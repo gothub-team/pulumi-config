@@ -147,39 +147,45 @@ cmd_delete() {
 }
 
 cmd_init_backend() {
-  local repo=""
+  local repo="" bucket="" passphrase=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --repo) repo="$2"; shift 2 ;;
+      --repo)       repo="$2"; shift 2 ;;
+      --bucket)     bucket="$2"; shift 2 ;;
+      --passphrase) passphrase="$2"; shift 2 ;;
       *) die "unexpected argument: $1" ;;
     esac
   done
   [[ -z "$repo" ]] && repo="$(detect_repo)"
 
-  local bucket="pulumi-state-${repo}"
-  local region
-  region="$(aws configure get region || echo "eu-central-1")"
-
-  echo "creating S3 bucket: $bucket (region: $region)"
-
-  if [[ "$region" == "us-east-1" ]]; then
-    aws s3api create-bucket --bucket "$bucket" 2>/dev/null || true
+  # --- bucket ---
+  if [[ -n "$bucket" ]]; then
+    echo "using existing bucket: $bucket"
   else
-    aws s3api create-bucket \
+    bucket="pulumi-state-${repo}"
+    local region
+    region="$(aws configure get region || echo "eu-central-1")"
+
+    echo "creating S3 bucket: $bucket (region: $region)"
+
+    if [[ "$region" == "us-east-1" ]]; then
+      aws s3api create-bucket --bucket "$bucket" 2>/dev/null || true
+    else
+      aws s3api create-bucket \
+        --bucket "$bucket" \
+        --create-bucket-configuration LocationConstraint="$region" 2>/dev/null || true
+    fi
+
+    aws s3api put-bucket-versioning \
       --bucket "$bucket" \
-      --create-bucket-configuration LocationConstraint="$region" 2>/dev/null || true
+      --versioning-configuration Status=Enabled
+
+    aws s3api put-public-access-block \
+      --bucket "$bucket" \
+      --public-access-block-configuration \
+        BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
   fi
 
-  aws s3api put-bucket-versioning \
-    --bucket "$bucket" \
-    --versioning-configuration Status=Enabled
-
-  aws s3api put-public-access-block \
-    --bucket "$bucket" \
-    --public-access-block-configuration \
-      BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-
-  # store bucket name in SSM
   aws ssm put-parameter \
     --name "$SSM_PREFIX/$repo/backend-bucket" \
     --type String \
@@ -188,24 +194,32 @@ cmd_init_backend() {
 
   echo "stored bucket name in $SSM_PREFIX/$repo/backend-bucket"
 
-  # generate and store passphrase
-  local existing
-  existing="$(aws ssm get-parameter \
-    --name "$SSM_PREFIX/$repo/passphrase" \
-    --with-decryption \
-    --query "Parameter.Value" \
-    --output text 2>/dev/null || true)"
-
-  if [[ -n "$existing" ]]; then
-    echo "passphrase already exists at $SSM_PREFIX/$repo/passphrase — skipping"
-  else
-    local passphrase
-    passphrase="$(openssl rand -base64 32)"
+  # --- passphrase ---
+  if [[ -n "$passphrase" ]]; then
     aws ssm put-parameter \
       --name "$SSM_PREFIX/$repo/passphrase" \
       --type SecureString \
-      --value "$passphrase" >/dev/null
-    echo "generated and stored passphrase in $SSM_PREFIX/$repo/passphrase"
+      --value "$passphrase" \
+      --overwrite >/dev/null
+    echo "stored passphrase in $SSM_PREFIX/$repo/passphrase"
+  else
+    local existing
+    existing="$(aws ssm get-parameter \
+      --name "$SSM_PREFIX/$repo/passphrase" \
+      --with-decryption \
+      --query "Parameter.Value" \
+      --output text 2>/dev/null || true)"
+
+    if [[ -n "$existing" ]]; then
+      echo "passphrase already exists at $SSM_PREFIX/$repo/passphrase — skipping"
+    else
+      passphrase="$(openssl rand -base64 32)"
+      aws ssm put-parameter \
+        --name "$SSM_PREFIX/$repo/passphrase" \
+        --type SecureString \
+        --value "$passphrase" >/dev/null
+      echo "generated and stored passphrase in $SSM_PREFIX/$repo/passphrase"
+    fi
   fi
 
   echo ""
@@ -257,7 +271,9 @@ usage:
   pulumi-config push <stack> [file] [--repo]   push config (file or stdin)
   pulumi-config pull <stack> [file] [--repo]   pull config (to file or stdout)
   pulumi-config delete <stack> [--repo <name>] delete stack config
-  pulumi-config init-backend [--repo <name>]   create S3 bucket + passphrase
+  pulumi-config init-backend [--bucket <name>] [--passphrase <val>] [--repo <name>]
+                                               create S3 bucket + passphrase
+                                               use --bucket/--passphrase for existing values
   pulumi-config env [--repo <name>]            print export statements for shell
 
 parameter layout in SSM:

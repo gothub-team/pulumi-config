@@ -38,7 +38,7 @@ cd infra && npm install && pulumi up
 | `push <stack> [file]` | Upload config (file or stdin) |
 | `pull <stack> [file]` | Download config (to file or stdout) |
 | `delete <stack>` | Remove config from SSM |
-| `init-backend` | Create S3 bucket + passphrase |
+| `init-backend [--bucket name] [--passphrase val]` | Create or register S3 bucket + passphrase |
 | `env` | Print shell export statements |
 
 ## Requirements
