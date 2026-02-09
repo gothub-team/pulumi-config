@@ -29,14 +29,14 @@ alias puc='pulumi-config'
 cd <repo>
 pulumi-config init-backend              # create S3 bucket + passphrase
 eval $(pulumi-config env)               # export backend URL + passphrase
-pulumi-config push <stack> Pulumi.<stack>.yaml  # back up stack config
+pulumi-config push <stack>                     # back up Pulumi.<stack>.yaml
 ```
 
 ### Restore on a fresh machine
 
 ```sh
 git clone <repo-url> && cd <repo>
-pulumi-config pull prod infra/Pulumi.prod.yaml
+pulumi-config pull prod
 eval $(pulumi-config env)
 cd infra && npm install && pulumi up
 ```
@@ -49,8 +49,8 @@ Repo is auto-detected from the current git folder. Use `--repo <name>` to overri
 |---|---|
 | `list [--all] [--repo name]` | List stacks for current repo (or all with `--all`) |
 | `get <stack>` | Print config to stdout |
-| `push <stack> [file]` | Upload config (file or stdin) |
-| `pull <stack> [file]` | Download config (to file or stdout) |
+| `push <stack>` | Push `Pulumi.<stack>.yaml` to SSM |
+| `pull <stack>` | Pull config to `Pulumi.<stack>.yaml` |
 | `delete <stack>` | Remove config from SSM |
 | `init-backend [--bucket name] [--passphrase val]` | Create or register S3 bucket + passphrase |
 | `env` | Print shell export statements |

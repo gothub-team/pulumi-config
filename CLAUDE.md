@@ -14,8 +14,8 @@ CLI tool to manage Pulumi stack configs (`Pulumi.<stack>.yaml`) in AWS SSM Param
 
 1. `pulumi-config init-backend` — creates the S3 state bucket, stores bucket name and passphrase in SSM
 2. `eval $(pulumi-config env)` — exports `PULUMI_BACKEND_URL` and `PULUMI_CONFIG_PASSPHRASE`
-3. `pulumi-config push <stack> Pulumi.<stack>.yaml` — backs up stack config
-4. `pulumi-config pull <stack> Pulumi.<stack>.yaml` — restores it on a fresh machine
+3. `pulumi-config push <stack>` — backs up `Pulumi.<stack>.yaml` to SSM
+4. `pulumi-config pull <stack>` — restores `Pulumi.<stack>.yaml` from SSM
 
 Repo is auto-detected from the current git folder. Use `--repo <name>` to override on any command.
 
@@ -24,7 +24,7 @@ Repo is auto-detected from the current git folder. Use `--repo <name>` to overri
 ```sh
 git clone <repo-url>
 cd <repo>
-pulumi-config pull prod infra/Pulumi.prod.yaml
+pulumi-config pull prod
 eval $(pulumi-config env)
 cd infra && npm install && pulumi up
 ```
@@ -35,8 +35,8 @@ cd infra && npm install && pulumi up
 |---|---|
 | `list [--all] [--repo name]` | List stacks for current repo (or all with `--all`) |
 | `get <stack>` | Print config to stdout |
-| `push <stack> [file]` | Upload config (file or stdin) |
-| `pull <stack> [file]` | Download config (to file or stdout) |
+| `push <stack>` | Push `Pulumi.<stack>.yaml` to SSM |
+| `pull <stack>` | Pull config to `Pulumi.<stack>.yaml` |
 | `delete <stack>` | Remove config from SSM |
 | `init-backend [--bucket name] [--passphrase val]` | Create or register S3 bucket + passphrase |
 | `env` | Print shell export statements |

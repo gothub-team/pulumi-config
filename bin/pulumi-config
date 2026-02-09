@@ -80,22 +80,21 @@ cmd_get() {
 }
 
 cmd_push() {
-  local repo="" stack="" file=""
+  local repo="" stack=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --repo) repo="$2"; shift 2 ;;
-      *) if [[ -z "$stack" ]]; then stack="$1"; elif [[ -z "$file" ]]; then file="$1"; else die "unexpected argument: $1"; fi; shift ;;
+      *) if [[ -z "$stack" ]]; then stack="$1"; shift; else die "unexpected argument: $1"; fi ;;
     esac
   done
   [[ -z "$repo" ]] && repo="$(detect_repo)"
   require_arg "$stack" "stack"
 
+  local file="Pulumi.${stack}.yaml"
+  [[ -f "$file" ]] || die "file not found: $file"
+
   local value
-  if [[ -n "$file" ]]; then
-    value="$(cat "$file")"
-  else
-    value="$(cat -)"
-  fi
+  value="$(cat "$file")"
 
   aws ssm put-parameter \
     --name "$SSM_PREFIX/$repo/$stack/config" \
@@ -104,29 +103,26 @@ cmd_push() {
     --overwrite \
     --query "Version" \
     --output text \
-  | xargs -I{} echo "pushed $repo/$stack (version {})"
+  | xargs -I{} echo "pushed $file → $repo/$stack (version {})"
 }
 
 cmd_pull() {
-  local repo="" stack="" file=""
+  local repo="" stack=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --repo) repo="$2"; shift 2 ;;
-      *) if [[ -z "$stack" ]]; then stack="$1"; elif [[ -z "$file" ]]; then file="$1"; else die "unexpected argument: $1"; fi; shift ;;
+      *) if [[ -z "$stack" ]]; then stack="$1"; shift; else die "unexpected argument: $1"; fi ;;
     esac
   done
   [[ -z "$repo" ]] && repo="$(detect_repo)"
   require_arg "$stack" "stack"
 
+  local file="Pulumi.${stack}.yaml"
   local content
   content="$(cmd_get --repo "$repo" "$stack")"
 
-  if [[ -n "$file" ]]; then
-    echo "$content" > "$file"
-    echo "pulled $repo/$stack → $file"
-  else
-    echo "$content"
-  fi
+  echo "$content" > "$file"
+  echo "pulled $repo/$stack → $file"
 }
 
 cmd_delete() {
@@ -268,8 +264,8 @@ repo is auto-detected from the current git folder. use --repo to override.
 usage:
   pulumi-config list [--all] [--repo <name>]   list stacks (current repo, --all for all)
   pulumi-config get <stack> [--repo <name>]    print stack config to stdout
-  pulumi-config push <stack> [file] [--repo]   push config (file or stdin)
-  pulumi-config pull <stack> [file] [--repo]   pull config (to file or stdout)
+  pulumi-config push <stack> [--repo <name>]   push Pulumi.<stack>.yaml to SSM
+  pulumi-config pull <stack> [--repo <name>]   pull config to Pulumi.<stack>.yaml
   pulumi-config delete <stack> [--repo <name>] delete stack config
   pulumi-config init-backend [--bucket <name>] [--passphrase <val>] [--repo <name>]
                                                create S3 bucket + passphrase
